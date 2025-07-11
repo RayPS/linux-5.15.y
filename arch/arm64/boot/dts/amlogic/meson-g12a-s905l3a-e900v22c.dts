@@ -71,6 +71,14 @@
 	mali-supply=<&vddgpu>;
 };
 
+/* WIFIPWN */
+&pwm_ef {
+	status = "okay"
+	pinctrl-0 = <&pwm_e_pins>;
+	pinctrl-names = "default";
+	#clock-cells = <0>;
+}
+
 /* SDIO */
 &sd_emmc_a {
 	status = "okay";
@@ -83,7 +91,7 @@
 	bus-width = <4>;
 	cap-sd-highspeed;
 	sd-uhs-sdr50;
-	max-frequency = <100000000>;
+	max-frequency = <400000>;
 
 	non-removable;
 	disable-wp;
@@ -98,7 +106,8 @@
 
 	wifi: wifi@1 {
 		reg = <1>;
-		compatible = "sprd,unisoc-wifi";
+		compatible = "realtek,rtl8822cs";
+		firmware-name = "rtl8822cs_fw.bin";
 	};
 };
 
