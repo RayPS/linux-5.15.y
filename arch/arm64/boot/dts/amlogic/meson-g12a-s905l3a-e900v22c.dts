@@ -104,7 +104,7 @@
 
 	mmc-pwrseq = <&sdio_pwrseq>;
 
-	vmmc-supply = <&vsys_3v3>;
+	vmmc-supply = <&vddao_3v3>;
 	vqmmc-supply = <&vddao_1v8>;
 
 	rtl8822cs: wifi@1 {
