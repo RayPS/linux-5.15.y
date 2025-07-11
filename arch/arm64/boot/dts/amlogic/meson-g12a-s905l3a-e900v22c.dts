@@ -34,6 +34,7 @@
 		reset-gpios = <&gpio GPIOX_6 GPIO_ACTIVE_LOW>;
 		clocks = <&wifi32k>;
 		clock-names = "ext_clock";
+		post-power-on-delay-ms = <100>;
 	};
 
 	leds {
@@ -107,7 +108,6 @@
 	wifi: wifi@1 {
 		reg = <1>;
 		compatible = "realtek,rtl8822cs";
-		firmware-name = "rtl8822cs_fw.bin";
 	};
 };
 
