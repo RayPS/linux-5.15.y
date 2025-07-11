@@ -81,29 +81,19 @@
 
 /* SDIO */
 &sd_emmc_a {
-	/* enable if WiFi/BT board connected */
-	/delete-property/ sd-uhs-sdr104;
 	status = "disabled";
 	pinctrl-0 = <&sdio_pins>;
 	pinctrl-1 = <&sdio_clk_gate_pins>;
 	pinctrl-names = "default", "clk-gate";
 	#address-cells = <1>;
 	#size-cells = <0>;
-
 	bus-width = <4>;
-	sd-uhs-sdr12;
-	sd-uhs-sdr25;
 	sd-uhs-sdr50;
-	max-frequency = <50000000>;
-
+	max-frequency = <400000>;
 	non-removable;
 	disable-wp;
-
-	/* WiFi firmware requires power in suspend */
 	keep-power-in-suspend;
-
 	mmc-pwrseq = <&sdio_pwrseq>;
-
 	vmmc-supply = <&vddao_3v3>;
 	vqmmc-supply = <&vddao_1v8>;
 
@@ -111,8 +101,6 @@
 		reg = <1>;
 	};
 };
-
-
 
 /* SD card */
 &sd_emmc_b {
@@ -160,22 +148,4 @@
 	//		opp-hz = /bits/ 64 <2016000000>;
 	//		opp-microvolt = <1021000>;
 	//};
-};
-
-&efuse {
-	eth_mac: eth_mac@0 {
-		reg = <0x0 0x06>;
-	};
-
-	bt_mac: bt_mac@6 {
-		reg = <0x6 0x6>;
-	};
-
-	wifi_mac: wifi_mac@c {
-		reg = <0xc 0x6>;
-	};
-
-	usid: usid@18 {
-		reg = <0x12 0x10>;
-	};
 };
