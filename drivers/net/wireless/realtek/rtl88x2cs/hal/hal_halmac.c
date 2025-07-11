@@ -1048,7 +1048,7 @@ static int init_write_rsvd_page_size(struct dvobj_priv *d)
 #elif defined(CONFIG_PCI_HCI)
 	size = MAX_CMDBUF_SZ - TXDESC_OFFSET;
 #elif defined(CONFIG_SDIO_HCI)
-	size = 0x7000; /* 28KB */
+	size = 0x3800; /* 14KB */
 #endif
 
 	/* If size==0, use HALMAC default setting and don't call any function */
