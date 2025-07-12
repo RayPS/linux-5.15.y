@@ -77,6 +77,7 @@
 	status = "okay";
 	pinctrl-0 = <&pwm_e_pins>;
 	pinctrl-names = "default";
+	#clock-cells = <0>;
 };
 
 /* SDIO */
