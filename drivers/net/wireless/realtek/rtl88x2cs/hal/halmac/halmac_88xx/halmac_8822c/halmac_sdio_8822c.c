@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2017 - 2018 Realtek Corporation. All rights reserved.
+ * Copyright(c) 2017 - 2019 Realtek Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -48,6 +48,38 @@ chk_dma_mapping_8822c(struct halmac_adapter *adapter, u16 **cur_fs,
 static enum halmac_ret_status
 chk_rqd_page_num_8822c(struct halmac_adapter *adapter, u8 *buf, u32 *rqd_pg_num,
 		       u16 **cur_fs, u8 *macid_cnt, u32 tx_agg_num);
+
+/**
+ * init_sdio_cfg_8822c() - init SDIO
+ * @adapter : the adapter of halmac
+ * Author : KaiYuan Chang/Ivan Lin
+ * Return : enum halmac_ret_status
+ * More details of status code can be found in prototype document
+ */
+enum halmac_ret_status
+init_sdio_cfg_8822c(struct halmac_adapter *adapter)
+{
+	u32 value32;
+	struct halmac_api *api = (struct halmac_api *)adapter->halmac_api;
+
+	if (adapter->intf != HALMAC_INTERFACE_SDIO)
+		return HALMAC_RET_WRONG_INTF;
+
+	PLTFM_MSG_TRACE("[TRACE]%s ===>\n", __func__);
+
+	HALMAC_REG_R32(REG_SDIO_FREE_TXPG);
+
+	value32 = HALMAC_REG_R32(REG_SDIO_TX_CTRL) & 0xFFFF;
+	value32 &= ~(BIT_CMD_ERR_STOP_INT_EN | BIT_EN_MASK_TIMER |
+			BIT_EN_RXDMA_MASK_INT | BIT_CMD53_TX_FORMAT);
+	HALMAC_REG_W32(REG_SDIO_TX_CTRL, value32);
+
+	HALMAC_REG_W8_SET(REG_SDIO_BUS_CTRL, BIT_EN_RPT_TXCRC);
+
+	PLTFM_MSG_TRACE("[TRACE]%s <===\n", __func__);
+
+	return HALMAC_RET_SUCCESS;
+}
 
 /**
  * mac_pwr_switch_sdio_8822c() - switch mac power
@@ -1015,16 +1047,15 @@ chk_rqd_page_num_8822c(struct halmac_adapter *adapter, u8 *buf, u32 *rqd_pg_num,
 u32
 get_sdio_int_lat_8822c(struct halmac_adapter *adapter)
 {
-	u32 free_cnt;
+	u32 free_cnt, free_cnt2;
 	u32 int_start;
 	u32 int_lat = 0;
 	struct halmac_api *api = (struct halmac_api *)adapter->halmac_api;
 
-	if (HALMAC_REG_R8(REG_MISC_CTRL) & BIT_EN_FREECNT) {
-		free_cnt = HALMAC_REG_R32(REG_FREERUN_CNT);
-		int_start = HALMAC_REG_R32(REG_SDIO_MONITOR);
-		int_lat = free_cnt - int_start;
-	}
+	int_start = HALMAC_REG_R32(REG_SDIO_MONITOR);
+	free_cnt = HALMAC_REG_R32(REG_FREERUN_CNT);
+	free_cnt2 = HALMAC_REG_R32(REG_FREERUN_CNT);
+	int_lat = free_cnt - int_start - (free_cnt2 - free_cnt);
 
 	return int_lat;
 }

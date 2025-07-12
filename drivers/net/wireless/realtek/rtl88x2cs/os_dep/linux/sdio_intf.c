@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2007 - 2017 Realtek Corporation.
+ * Copyright(c) 2007 - 2019 Realtek Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -43,10 +43,6 @@ static int wlan_en_gpio = -1;
 #define dev_to_sdio_func(d)     container_of(d, struct sdio_func, dev)
 #endif
 
-#ifdef CONFIG_WOWLAN
-static struct mmc_host *mmc_host = NULL;
-#endif
-
 static const struct sdio_device_id sdio_ids[] = {
 #ifdef CONFIG_RTL8723B
 	{ SDIO_DEVICE(0x024c, 0xB723), .driver_data = RTL8723B},
@@ -87,6 +83,7 @@ static const struct sdio_device_id sdio_ids[] = {
 #ifdef CONFIG_RTL8192F
 	{ SDIO_DEVICE(0x024c, 0x818C), .driver_data = RTL8192F},/*A CUT*/
 	{ SDIO_DEVICE(0x024c, 0xF192), .driver_data = RTL8192F},/*B CUT*/
+	{ SDIO_DEVICE(0x024c, 0xA725), .driver_data = RTL8192F},/*8725AS*/
 #endif /* CONFIG_RTL8192F */
 
 #ifdef CONFIG_RTL8821C
@@ -115,6 +112,11 @@ static void rtw_dev_shutdown(struct device *dev);
 static int rtw_sdio_resume(struct device *dev);
 static int rtw_sdio_suspend(struct device *dev);
 extern void rtw_dev_unload(PADAPTER padapter);
+
+#ifdef CONFIG_ALIBABA_ZEROCONFIG
+extern void rtw_genl_init(PADAPTER padapter);
+extern void rtw_genl_deinit(void);
+#endif /* CONFIG_ALIBABA_ZEROCONFIG */
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 29))
 static const struct dev_pm_ops rtw_sdio_pm_ops = {
@@ -564,8 +566,10 @@ static void rtw_decide_chip_type_by_device_id(struct dvobj_priv *dvobj, const st
 #endif
 
 #if defined(CONFIG_RTL8723B)
-	dvobj->chip_type = RTL8723B;
-	dvobj->HardwareType = HARDWARE_TYPE_RTL8723BS;
+	if (dvobj->chip_type == RTL8723B) {
+		dvobj->HardwareType = HARDWARE_TYPE_RTL8723BS;
+		RTW_INFO("CHIP TYPE: RTL8723B\n");
+	}
 #endif
 
 #if defined(CONFIG_RTL8821A)
@@ -901,7 +905,7 @@ static void rtw_sdio_primary_adapter_deinit(_adapter *padapter)
 {
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 
-	if (check_fwstate(pmlmepriv, _FW_LINKED))
+	if (check_fwstate(pmlmepriv, WIFI_ASOC_STATE))
 		rtw_disassoc_cmd(padapter, 0, RTW_CMDF_DIRECTLY);
 
 #ifdef CONFIG_AP_MODE
@@ -967,7 +971,6 @@ static int rtw_drv_init(
 #ifdef CONFIG_CONCURRENT_MODE
 	int i;
 #endif
-	struct net_device *pnetdev;
 	PADAPTER padapter = NULL;
 	struct dvobj_priv *dvobj;
 
@@ -1085,6 +1088,13 @@ free_if_vir:
 free_dvobj:
 	if (status != _SUCCESS)
 		sdio_dvobj_deinit(func);
+
+#ifdef CONFIG_ALIBABA_ZEROCONFIG
+	if(status == _SUCCESS) {
+		rtw_genl_init(padapter);
+	}
+#endif
+
 exit:
 	return status == _SUCCESS ? 0 : -ENODEV;
 }
@@ -1139,6 +1149,10 @@ static void rtw_dev_remove(struct sdio_func *func)
 	rtw_btcoex_HaltNotify(padapter);
 #endif
 
+#ifdef CONFIG_ALIBABA_ZEROCONFIG
+	rtw_genl_deinit();
+#endif
+
 	rtw_sdio_primary_adapter_deinit(padapter);
 
 #ifdef CONFIG_CONCURRENT_MODE
@@ -1160,29 +1174,7 @@ static void rtw_dev_shutdown(struct device *dev)
 
 	RTW_INFO("==> %s !\n", __func__);
 
-#if 0
 	rtw_dev_remove(func);
-#else
-	{
-		struct dvobj_priv *dvobj = sdio_get_drvdata(func);
-		PADAPTER padapter = dvobj_get_primary_adapter(dvobj);
-		struct pwrctrl_priv *pwrpriv = dvobj_to_pwrctl(dvobj);
-
-#ifdef CONFIG_BT_COEXIST
-		rtw_btcoex_SetManualControl(padapter, _TRUE);
-#endif
-
-		while (pwrpriv->bips_processing == _TRUE)
-			rtw_msleep_os(1);
-
-		rtw_mi_scan_abort(padapter, _FALSE);
-
-		rtw_set_drv_stopped(padapter);
-		rtw_intf_stop(padapter);
-		rtw_hal_power_off(padapter);
-		rtw_set_surprise_removed(padapter);
-	}
-#endif
 
 	RTW_INFO("<== %s !\n", __func__);
 }
@@ -1194,13 +1186,21 @@ extern int pm_netdev_close(struct net_device *pnetdev, u8 bnormal);
 static int rtw_sdio_suspend(struct device *dev)
 {
 	struct sdio_func *func = dev_to_sdio_func(dev);
-	struct dvobj_priv *psdpriv = sdio_get_drvdata(func);
+	struct dvobj_priv *psdpriv;
 	struct pwrctrl_priv *pwrpriv = NULL;
 	_adapter *padapter = NULL;
 	struct debug_priv *pdbgpriv = NULL;
 	int ret = 0;
-	u8 ch, bw, offset;
+#ifdef CONFIG_RTW_SDIO_PM_KEEP_POWER
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34))
+	mmc_pm_flag_t pm_flag = 0;
+#endif
+#endif
 
+	if (dev == NULL)
+		goto exit;
+
+	psdpriv = sdio_get_drvdata(func);
 	if (psdpriv == NULL)
 		goto exit;
 
@@ -1220,7 +1220,6 @@ static int rtw_sdio_suspend(struct device *dev)
 
 	ret = rtw_suspend_common(padapter);
 
-exit:
 #ifdef CONFIG_RTW_SDIO_PM_KEEP_POWER
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34))
 	/* Android 4.0 don't support WIFI close power */
@@ -1228,22 +1227,20 @@ exit:
 	/* this is sprd's bug in Android 4.0, but sprd don't */
 	/* want to fix it. */
 	/* we have test power under 8723as, power consumption is ok */
-	if (func) {
-		mmc_pm_flag_t pm_flag = 0;
-		pm_flag = sdio_get_host_pm_caps(func);
-		RTW_INFO("cmd: %s: suspend: PM flag = 0x%x\n", sdio_func_id(func), pm_flag);
-		if (!(pm_flag & MMC_PM_KEEP_POWER)) {
-			RTW_INFO("%s: cannot remain alive while host is suspended\n", sdio_func_id(func));
-			if (pdbgpriv)
-				pdbgpriv->dbg_suspend_error_cnt++;
-			return -ENOSYS;
-		} else {
-			RTW_INFO("cmd: suspend with MMC_PM_KEEP_POWER\n");
-			sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
-		}
+	pm_flag = sdio_get_host_pm_caps(func);
+	RTW_INFO("cmd: %s: suspend: PM flag = 0x%x\n", sdio_func_id(func), pm_flag);
+	if (!(pm_flag & MMC_PM_KEEP_POWER)) {
+		RTW_INFO("%s: cannot remain alive while host is suspended\n", sdio_func_id(func));
+		if (pdbgpriv)
+			pdbgpriv->dbg_suspend_error_cnt++;
+		return -ENOSYS;
+	} else {
+		RTW_INFO("cmd: suspend with MMC_PM_KEEP_POWER\n");
+		sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
 	}
 #endif
 #endif
+exit:
 	return ret;
 }
 int rtw_resume_process(_adapter *padapter)

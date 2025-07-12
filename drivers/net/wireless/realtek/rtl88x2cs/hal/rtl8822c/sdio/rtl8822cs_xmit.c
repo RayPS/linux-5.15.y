@@ -71,6 +71,10 @@ static s32 dequeue_writeport(PADAPTER adapter)
 
 free_xmitbuf:
 	rtw_free_xmitbuf(pxmitpriv, pxmitbuf);
+#ifdef SDIO_FREE_XMIT_BUF_SEMA
+	if (pxmitbuf->buf_tag == XMITBUF_DATA)
+		rtw_sdio_free_xmitbuf_sema_up(pxmitpriv);
+#endif
 
 #ifdef CONFIG_SDIO_TX_TASKLET
 	tasklet_hi_schedule(&pxmitpriv->xmit_tasklet);
@@ -166,7 +170,9 @@ static s32 xmit_xmitframes(PADAPTER adapter, struct xmit_priv *pxmitpriv)
 	int inx[4];
 	u8 pre_qsel = 0xFF, next_qsel = 0xFF;
 	u8 single_sta_in_queue = _FALSE;
-
+#ifdef SDIO_FREE_XMIT_BUF_SEMA
+	u32 consume;
+#endif
 
 	err = 0;
 	no_res = _FALSE;
@@ -195,11 +201,14 @@ static s32 xmit_xmitframes(PADAPTER adapter, struct xmit_priv *pxmitpriv)
 	/* 0(VO), 1(VI), 2(BE), 3(BK) */
 	for (idx = 0; idx < hwentry; idx++) {
 		phwxmit = hwxmits + inx[idx];
+	#ifdef SDIO_FREE_XMIT_BUF_SEMA
+		consume = 0;
+	#endif
 
 		if ((check_pending_xmitbuf(pxmitpriv) == _TRUE)
 		    && (adapter->mlmepriv.LinkDetectInfo.bHigherBusyTxTraffic == _TRUE)) {
 			if ((phwxmit->accnt > 0) && (phwxmit->accnt < 5)) {
-				err = -2;
+				err = RTW_TX_WAIT_MORE_FRAME;
 				break;
 			}
 		}
@@ -258,24 +267,32 @@ static s32 xmit_xmitframes(PADAPTER adapter, struct xmit_priv *pxmitpriv)
 							if (single_sta_in_queue == _FALSE) {
 								/* break the loop in case there is more than one sta in this ac queue */
 								pxmitbuf = NULL;
-								err = -3;
+								err = RTW_TX_BALANCE;
 								break;
 							}
-						} else
+						} else {
 							rtw_free_xmitbuf(pxmitpriv, pxmitbuf);
+						#ifdef SDIO_FREE_XMIT_BUF_SEMA
+							consume--;
+						#endif
+						}
 					}
 
 					pxmitbuf = rtw_alloc_xmitbuf(pxmitpriv);
 					if (pxmitbuf == NULL) {
-#if 0
+					#ifdef DBG_XMIT_BUF
 						RTW_ERR("%s: xmit_buf is not enough!\n", __FUNCTION__);
-#endif
-						err = -2;
-#ifdef CONFIG_SDIO_TX_ENABLE_AVAL_INT
-						_rtw_up_sema(&GET_PRIMARY_ADAPTER(adapter)->xmitpriv.xmit_sema);
-#endif /* CONFIG_SDIO_TX_ENABLE_AVAL_INT */
+					#endif
+					#ifdef CONFIG_SDIO_TX_ENABLE_AVAL_INT
+						/* _rtw_up_sema(&GET_PRIMARY_ADAPTER(adapter)->xmitpriv.xmit_sema); */
+					#endif
+						err = RTW_XBUF_UNAVAIL;
 						break;
 					}
+
+				#ifdef SDIO_FREE_XMIT_BUF_SEMA
+					consume++;
+				#endif
 					k = 0;
 				}
 
@@ -343,7 +360,7 @@ static s32 xmit_xmitframes(PADAPTER adapter, struct xmit_priv *pxmitpriv)
 #endif
 			if (_rtw_queue_empty(pframe_queue) == _TRUE)
 				rtw_list_delete(&ptxservq->tx_pending);
-			else if (err == -3) {
+			else if (err == RTW_TX_BALANCE) {
 				/* Re-arrange the order of stations in this ac queue to balance the service for these stations */
 				rtw_list_delete(&ptxservq->tx_pending);
 				rtw_list_insert_tail(&ptxservq->tx_pending, get_list_head(phwxmit->sta_queue));
@@ -354,6 +371,16 @@ static s32 xmit_xmitframes(PADAPTER adapter, struct xmit_priv *pxmitpriv)
 				break;
 		}
 		_exit_critical_bh(&pxmitpriv->lock, &irql);
+
+
+#ifdef SDIO_FREE_XMIT_BUF_SEMA
+#ifdef DBG_SDIO_FREE_XMIT_BUF_SEMA
+		if (consume)
+			RTW_INFO(FUNC_ADPT_FMT" acq[%u], consume:%u\n", FUNC_ADPT_ARG(adapter), inx[idx], consume);
+#endif
+		while (consume--)
+			rtw_sdio_free_xmitbuf_sema_down(pxmitpriv);
+#endif
 
 		/* dump xmit_buf to hw tx fifo */
 		if (pxmitbuf) {
@@ -368,12 +395,17 @@ static s32 xmit_xmitframes(PADAPTER adapter, struct xmit_priv *pxmitpriv)
 				pxmitbuf->priv_data = NULL;
 				enqueue_pending_xmitbuf(pxmitpriv, pxmitbuf);
 				rtw_yield_os();
-			} else
+			} else {
 				rtw_free_xmitbuf(pxmitpriv, pxmitbuf);
+			#ifdef SDIO_FREE_XMIT_BUF_SEMA
+				rtw_sdio_free_xmitbuf_sema_up(pxmitpriv);
+			#endif
+			}
+
 			pxmitbuf = NULL;
 		}
 
-		if (err == -2)
+		if (err == RTW_XBUF_UNAVAIL)
 			break;
 	}
 
@@ -421,8 +453,17 @@ next:
 
 	/* Dequeue frame and write to hardware */
 	ret = xmit_xmitframes(adapter, pxmitpriv);
-	if (ret == -2) {
-		_rtw_up_sema(&pxmitpriv->SdioXmitSema);
+	if ((ret == RTW_XBUF_UNAVAIL) ||
+		(ret == RTW_TX_WAIT_MORE_FRAME)) {
+	#ifdef SDIO_FREE_XMIT_BUF_SEMA
+		if (ret == RTW_XBUF_UNAVAIL) {
+			rtw_sdio_free_xmitbuf_sema_down(pxmitpriv);
+			rtw_sdio_free_xmitbuf_sema_up(pxmitpriv);
+			goto next;
+		}
+	#endif
+
+		/* _rtw_up_sema(&pxmitpriv->SdioXmitSema); */
 		/*
 		 * here sleep 1ms will cause big TP loss of TX
 		 * from 50+ to 40+
@@ -450,10 +491,16 @@ thread_return rtl8822cs_xmit_thread(thread_context context)
 	s32 ret;
 	PADAPTER adapter;
 	struct xmit_priv *pxmitpriv;
-	u8 thread_name[20] = "RTWHALXT";
+	u8 thread_name[20] = {0};
 #ifdef RTW_XMIT_THREAD_HIGH_PRIORITY_AGG
 #ifdef PLATFORM_LINUX
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 1))
+	struct sched_param param = { .sched_priority = 1 };
+
+	sched_setscheduler(current, SCHED_FIFO, &param);
+#else
 	sched_set_fifo_low(current);
+#endif
 #endif /* PLATFORM_LINUX */
 #endif /* RTW_XMIT_THREAD_HIGH_PRIORITY_AGG */
 
@@ -461,7 +508,7 @@ thread_return rtl8822cs_xmit_thread(thread_context context)
 	adapter = (PADAPTER)context;
 	pxmitpriv = &adapter->xmitpriv;
 
-	rtw_sprintf(thread_name, 20, "%s-"ADPT_FMT, thread_name, ADPT_ARG(adapter));
+	rtw_sprintf(thread_name, 20, "RTWHALXT-"ADPT_FMT, ADPT_ARG(adapter));
 	thread_enter(thread_name);
 
 	RTW_INFO("start "FUNC_ADPT_FMT"\n", FUNC_ADPT_ARG(adapter));
@@ -615,6 +662,10 @@ s32 rtl8822cs_init_xmit_priv(PADAPTER adapter)
 	xmitpriv = &adapter->xmitpriv;
 
 	_rtw_init_sema(&xmitpriv->SdioXmitSema, 0);
+#ifdef SDIO_FREE_XMIT_BUF_SEMA
+	_rtw_init_sema(&xmitpriv->sdio_free_xmitbuf_sema,
+		xmitpriv->free_xmitbuf_cnt);
+#endif
 	rtl8822c_init_xmit_priv(adapter);
 	return _SUCCESS;
 }
@@ -654,5 +705,9 @@ void rtl8822cs_free_xmit_priv(PADAPTER adapter)
 		rtw_free_xmitframe(pxmitpriv, (struct xmit_frame *)pxmitbuf->priv_data);
 		pxmitbuf->priv_data = NULL;
 		rtw_free_xmitbuf(pxmitpriv, pxmitbuf);
+	#ifdef SDIO_FREE_XMIT_BUF_SEMA
+		if (pxmitbuf->buf_tag == XMITBUF_DATA)
+			rtw_sdio_free_xmitbuf_sema_up(pxmitpriv);
+	#endif
 	}
 }

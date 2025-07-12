@@ -42,34 +42,6 @@ static u8 sdio_f0_read8(struct intf_hdl *pintfhdl, u32 addr)
 	return val;
 }
 
-#ifdef CONFIG_SDIO_MONITOR
-static void sd_monitor_cmd53_write_intvl(PADAPTER adapter)
-{
-	PHAL_DATA_TYPE pHalData = GET_HAL_DATA(adapter);
-	struct dvobj_priv *dvobj = adapter_to_dvobj(adapter);
-	u32 tmp_data = 0;
-
-	tmp_data = (rtw_read32(adapter, REG_SDIO_MONITOR_2_8822C) & 0x1FFFFF);
-	if ((tmp_data > 0) && (tmp_data <= 0xFFFF)) {
-		pHalData->sdio_monitor_sample_data[pHalData->sdio_monitor_sample_num] = tmp_data;
-		pHalData->sdio_monitor_sample_num = (pHalData->sdio_monitor_sample_num + 1) % SDIO_MONITOR_MAX_SAMPLE_NUM;
-	}
-}
-
-static void sd_monitor_int_lat(PADAPTER adapter)
-{
-	PHAL_DATA_TYPE pHalData = GET_HAL_DATA(adapter);
-	struct dvobj_priv *dvobj = adapter_to_dvobj(adapter);
-	u32 tmp_data = 0;
-
-	tmp_data = rtw_halmac_sdio_get_int_lat(dvobj);
-	if ((tmp_data > 0) && (tmp_data <= 0xFFFF)) {
-		pHalData->sdio_monitor_sample_data[pHalData->sdio_monitor_sample_num] = tmp_data;
-		pHalData->sdio_monitor_sample_num = (pHalData->sdio_monitor_sample_num + 1) % SDIO_MONITOR_MAX_SAMPLE_NUM;
-	}
-}
-#endif
-
 /*
  * Description:
  *	Read from RX FIFO
@@ -223,23 +195,7 @@ static u32 sdio_write_port(struct intf_hdl *pintfhdl, u32 addr, u32 cnt, u8 *mem
 	}
 #endif
 
-#ifdef CONFIG_SDIO_MONITOR
-	{
-		PHAL_DATA_TYPE pHalData = GET_HAL_DATA(adapter);
-		
-		if (pHalData->sdio_monitor_enable == SDIO_MONITOR_MODE_CMD53W_INTVL)
-			rtw_halmac_sdio_set_wt_en(d);
-	}
-#endif
 	ret = rtl8822cs_write_port(d, cnt, xmitbuf->pdata);
-#ifdef CONFIG_SDIO_MONITOR
-	{
-		PHAL_DATA_TYPE pHalData = GET_HAL_DATA(adapter);
-
-		if (pHalData->sdio_monitor_enable == SDIO_MONITOR_MODE_CMD53W_INTVL)
-			sd_monitor_cmd53_write_intvl(adapter);
-	}
-#endif
 
 	rtw_sctx_done_err(&xmitbuf->sctx,
 		(_FAIL == ret) ? RTW_SCTX_DONE_WRITE_PORT_ERR : RTW_SCTX_DONE_SUCCESS);
@@ -426,7 +382,7 @@ void sd_int_dpc(PADAPTER adapter)
 		RTW_INFO("%s: Rx Error\n", __FUNCTION__);
 #ifdef CONFIG_SDIO_MULTI_FUNCTION_COEX
 #if DBG_SDIO_MULTI_FUNCTION_COEX
-	if (phal->sdio_hisr & BIT8)
+	if (phal->sdio_hisr & BIT_BT_INT_8822C)
 		RTW_INFO("%s: SDIO bus resume to available\n", __FUNCTION__);
 #endif
 #endif
@@ -436,14 +392,9 @@ void sd_int_dpc(PADAPTER adapter)
 		int rx_fail_time = 0;
 		u32 rx_len;
 
-#ifdef CONFIG_SDIO_MONITOR
-		if (phal->sdio_monitor_enable == SDIO_MONITOR_MODE_INT_LAT)
-			sd_monitor_int_lat(adapter);
-#endif
-
 		#ifdef CONFIG_SDIO_MULTI_FUNCTION_COEX 
 		if (!ex_hal_sdio_multi_if_bus_available(adapter)
-			&& !(phal->sdio_hisr & BIT8)
+			&& !(phal->sdio_hisr & BIT_BT_INT_8822C)
 		) {
 			#if DBG_SDIO_MULTI_FUNCTION_COEX
 			RTW_INFO("%s: RX entry, SDIO_MULTI_BT && not resume\n", __FUNCTION__);
@@ -461,7 +412,7 @@ void sd_int_dpc(PADAPTER adapter)
 				break;
 
 			if (rx_len > MAX_RECVBUF_SZ) {
-				RTW_ERR("%s : rx drop for invalid len %d\n", __func__, rx_len);
+				RTW_ERR("%s : rx drop for invalid %d\n", __func__, rx_len);
 				break;
 			}
 

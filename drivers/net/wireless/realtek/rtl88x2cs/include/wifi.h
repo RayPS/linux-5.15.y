@@ -19,6 +19,9 @@
 #ifndef BIT
 #define BIT(x)	(1 << (x))
 #endif
+#ifndef BIT_ULL
+#define BIT_ULL(x)	(1ULL << (x))
+#endif
 
 
 #define WLAN_ETHHDR_LEN		14
@@ -456,7 +459,7 @@ __inline static int IS_MCAST(const u8 *da)
 		return _FALSE;
 }
 
-__inline static unsigned char *get_ra(unsigned char *pframe)
+__inline static unsigned char *get_raddr(unsigned char *pframe)
 {
 	unsigned char	*ra;
 	ra = GetAddr1Ptr(pframe);
@@ -658,6 +661,7 @@ typedef	enum _ELEMENT_ID {
 	/* vivi for WIFITest, 802.11h AP, 20100427 */
 	/* 2010/12/26 MH The definition we can declare always!! */
 	EID_PowerCap				= 33,
+	EID_TPC				= 35,
 	EID_SupportedChannels		= 36,
 	EID_ChlSwitchAnnounce		= 37,
 
@@ -730,19 +734,24 @@ typedef	enum _ELEMENT_ID {
 
 #define WLAN_ETHCONV_ENCAP		1
 #define WLAN_ETHCONV_RFC1042	2
-#define WLAN_ETHCONV_8021h		3
+#define WLAN_ETHCONV_8021h	3
 
-#define cap_ESS BIT(0)
-#define cap_IBSS BIT(1)
-#define cap_CFPollable BIT(2)
-#define cap_CFRequest BIT(3)
-#define cap_Privacy BIT(4)
-#define cap_ShortPremble BIT(5)
-#define cap_PBCC	BIT(6)
-#define cap_ChAgility	BIT(7)
-#define cap_SpecMgmt	BIT(8)
-#define cap_QoS	BIT(9)
-#define cap_ShortSlot	BIT(10)
+#define cap_ESS 		BIT(0)
+#define cap_IBSS		BIT(1)
+#define cap_CFPollable		BIT(2)
+#define cap_CFRequest		BIT(3)
+#define cap_Privacy		BIT(4)
+#define cap_ShortPremble	BIT(5)
+#define cap_PBCC		BIT(6)
+#define cap_ChAgility		BIT(7)
+#define cap_SpecMgmt		BIT(8)
+#define cap_QoS 		BIT(9)
+#define cap_ShortSlot		BIT(10)
+#define cap_APSD		BIT(11)
+#define cap_RM			BIT(12)
+#define cap_DSSSOFDM		BIT(13)
+#define cap_DelayedBACK 	BIT(14)
+#define cap_ImmediateBACK	BIT(15)
 
 /*-----------------------------------------------------------------------------
 				Below is the definition for 802.11i / 802.1x
@@ -760,7 +769,7 @@ typedef	enum _ELEMENT_ID {
 #define _WEP_WPA_MIXED_PRIVACY_ 6	/*  WEP + WPA */
 #endif
 
-#define _MME_IE_LENGTH_  18
+#define _MME_IE_LENGTH_  26
 
 /*-----------------------------------------------------------------------------
 				Below is the definition for WMM

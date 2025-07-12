@@ -444,9 +444,6 @@ void rtw_mstat_dump(void *sel)
 	int value_f[4][mstat_ff_idx(MSTAT_FUNC_MAX)];
 #endif
 
-	int vir_alloc, vir_peak, vir_alloc_err, phy_alloc, phy_peak, phy_alloc_err;
-	int tx_alloc, tx_peak, tx_alloc_err, rx_alloc, rx_peak, rx_alloc_err;
-
 	for (i = 0; i < mstat_tf_idx(MSTAT_TYPE_MAX); i++) {
 		value_t[0][i] = ATOMIC_READ(&(rtw_mem_type_stat[i].alloc));
 		value_t[1][i] = ATOMIC_READ(&(rtw_mem_type_stat[i].peak));
@@ -975,6 +972,24 @@ int	_rtw_memcmp(const void *dst, const void *src, u32 sz)
 
 }
 
+int _rtw_memcmp2(const void *dst, const void *src, u32 sz)
+{
+	const unsigned char *p1 = dst, *p2 = src;
+
+	if (sz == 0)
+		return 0;
+
+	while (*p1 == *p2) {
+		p1++;
+		p2++;
+		sz--;
+		if (sz == 0)
+			return 0;
+	}
+
+	return *p1 - *p2;
+}
+
 void _rtw_memset(void *pbuf, int c, u32 sz)
 {
 
@@ -1294,7 +1309,11 @@ u32 _rtw_down_sema(_sema *sema)
 inline void thread_exit(_completion *comp)
 {
 #ifdef PLATFORM_LINUX
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,17,0))
+	kthread_complete_and_exit(comp, 0);
+#else
 	complete_and_exit(comp, 0);
+#endif
 #endif
 
 #ifdef PLATFORM_FREEBSD
@@ -1625,8 +1644,7 @@ void rtw_sleep_schedulable(int ms)
 		delta = 1;/* 1 ms */
 	}
 	set_current_state(TASK_INTERRUPTIBLE);
-	if (schedule_timeout(delta) != 0)
-		return ;
+        schedule_timeout(delta);
 	return;
 
 #endif
@@ -2194,6 +2212,20 @@ static int writeFile(struct file *fp, char *buf, int len)
 }
 
 /*
+* Test if the specifi @param pathname is a direct and readable
+* If readable, @param sz is not used
+* @param pathname the name of the path to test
+* @return Linux specific error code
+*/
+static int isDirReadable(const char *pathname, u32 *sz)
+{
+	struct path path;
+	int error = 0;
+
+	return kern_path(pathname, LOOKUP_FOLLOW, &path);
+}
+
+/*
 * Test if the specifi @param path is a file and readable
 * If readable, @param sz is got
 * @param path the path of the file to test
@@ -2203,7 +2235,7 @@ static int isFileReadable(const char *path, u32 *sz)
 {
 	struct file *fp;
 	int ret = 0;
-#ifdef set_fs
+#ifdef get_fs
 	mm_segment_t oldfs;
 #endif
 	char buf;
@@ -2212,11 +2244,14 @@ static int isFileReadable(const char *path, u32 *sz)
 	if (IS_ERR(fp))
 		ret = PTR_ERR(fp);
 	else {
-#ifdef set_fs
+#ifdef get_fs
 		oldfs = get_fs();
+		#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0))
 		set_fs(KERNEL_DS);
+		#else
+		set_fs(get_ds());
+		#endif
 #endif
-
 		if (1 != readFile(fp, &buf, 1))
 			ret = PTR_ERR(fp);
 
@@ -2227,7 +2262,8 @@ static int isFileReadable(const char *path, u32 *sz)
 			*sz = i_size_read(fp->f_dentry->d_inode);
 			#endif
 		}
-#ifdef set_fs
+
+#ifdef get_fs
 		set_fs(oldfs);
 #endif
 		filp_close(fp, NULL);
@@ -2245,7 +2281,7 @@ static int isFileReadable(const char *path, u32 *sz)
 static int retriveFromFile(const char *path, u8 *buf, u32 sz)
 {
 	int ret = -1;
-#ifdef set_fs
+#ifdef get_fs
 	mm_segment_t oldfs;
 #endif
 	struct file *fp;
@@ -2254,13 +2290,18 @@ static int retriveFromFile(const char *path, u8 *buf, u32 sz)
 		ret = openFile(&fp, path, O_RDONLY, 0);
 		if (0 == ret) {
 			RTW_INFO("%s openFile path:%s fp=%p\n", __FUNCTION__, path , fp);
-#ifdef set_fs
+
+#ifdef get_fs
 			oldfs = get_fs();
+			#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0))
 			set_fs(KERNEL_DS);
+			#else
+			set_fs(get_ds());
+			#endif
+#endif
 			ret = readFile(fp, buf, sz);
+#ifdef get_fs
 			set_fs(oldfs);
-#else
-			ret = readFile(fp, buf, sz);
 #endif
 			closeFile(fp);
 
@@ -2285,7 +2326,7 @@ static int retriveFromFile(const char *path, u8 *buf, u32 sz)
 static int storeToFile(const char *path, u8 *buf, u32 sz)
 {
 	int ret = 0;
-#ifdef set_fs
+#ifdef get_fs
 	mm_segment_t oldfs;
 #endif
 	struct file *fp;
@@ -2294,13 +2335,18 @@ static int storeToFile(const char *path, u8 *buf, u32 sz)
 		ret = openFile(&fp, path, O_CREAT | O_WRONLY, 0666);
 		if (0 == ret) {
 			RTW_INFO("%s openFile path:%s fp=%p\n", __FUNCTION__, path , fp);
-#ifdef set_fs
+
+#ifdef get_fs
 			oldfs = get_fs();
+			#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0))
 			set_fs(KERNEL_DS);
+			#else
+			set_fs(get_ds());
+			#endif
+#endif
 			ret = writeFile(fp, buf, sz);
+#ifdef get_fs
 			set_fs(oldfs);
-#else
-			ret = writeFile(fp, buf, sz);
 #endif
 			closeFile(fp);
 
@@ -2315,6 +2361,24 @@ static int storeToFile(const char *path, u8 *buf, u32 sz)
 	return ret;
 }
 #endif /* PLATFORM_LINUX */
+
+/*
+* Test if the specifi @param path is a direct and readable
+* @param path the path of the direct to test
+* @return _TRUE or _FALSE
+*/
+int rtw_is_dir_readable(const char *path)
+{
+#ifdef PLATFORM_LINUX
+	if (isDirReadable(path, NULL) == 0)
+		return _TRUE;
+	else
+		return _FALSE;
+#else
+	/* Todo... */
+	return _FALSE;
+#endif
+}
 
 /*
 * Test if the specifi @param path is a file and readable
@@ -2516,7 +2580,11 @@ int rtw_change_ifname(_adapter *padapter, const char *ifname)
 
 	rtw_init_netdev_name(pnetdev, ifname);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+	eth_hw_addr_set(pnetdev, adapter_mac_addr(padapter));
+#else
 	_rtw_memcpy(pnetdev->dev_addr, adapter_mac_addr(padapter), ETH_ALEN);
+#endif
 
 	if (rtnl_lock_needed)
 		ret = register_netdev(pnetdev);
@@ -2639,7 +2707,9 @@ u64 rtw_division64(u64 x, u64 y)
 inline u32 rtw_random32(void)
 {
 #ifdef PLATFORM_LINUX
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
+    return get_random_u32();
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
 	return prandom_u32();
 #elif (LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 18))
 	u32 random_int;

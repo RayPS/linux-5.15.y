@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2017 - 2018 Realtek Corporation. All rights reserved.
+ * Copyright(c) 2017 - 2019 Realtek Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -19,6 +19,9 @@
 #include "../../halmac_api.h"
 
 #if (HALMAC_8822C_SUPPORT && HALMAC_SDIO_SUPPORT)
+
+enum halmac_ret_status
+init_sdio_cfg_8822c(struct halmac_adapter *adapter);
 
 enum halmac_ret_status
 mac_pwr_switch_sdio_8822c(struct halmac_adapter *adapter,

@@ -217,11 +217,9 @@ void rtl8822c_set_FwPwrMode_cmd(PADAPTER adapter, u8 psmode)
 		if (hal_data->lps_1t1r != pwrpriv->lps_1t1r
 			/* if rf_type already 1T1R, no need to enable LPS-1T1R */
 			&& hal_data->NumTotalRFPath > 1
-			#if 0 /* this branch always have pathA on both TX and RX */
 			/* for now, FW LPS 1T1R operates on TX:A, RX:A */
 			&& GET_HAL_TX_PATH_BMP(adapter) & 0x01
 			&& GET_HAL_RX_PATH_BMP(adapter) & 0x01
-			#endif
 		) {
 			/* TODO: cmd macro defined by halmac */
 			#define SET_PWR_MODE_EXT_SET_1T1R_EN(h2c_pkt, value) SET_BITS_TO_LE_4BYTE(h2c_pkt + 0X00, 8, 1, value)
@@ -279,6 +277,14 @@ void rtl8822c_set_FwPwrMode_cmd(PADAPTER adapter, u8 psmode)
 void rtl8822c_set_BcnEarly_C2H_Rpt_cmd(PADAPTER padapter, u8 enable)
 {
 	u8	u1H2CSetPwrMode[RTW_HALMAC_H2C_MAX_SIZE] = {0};
+	struct tdls_info *ptdlsinfo = &padapter->tdlsinfo;
+	struct tdls_ch_switch *pchsw_info = &ptdlsinfo->chsw_info;
+
+	if (enable) {
+		pchsw_info->bcn_early_reg_bkp = rtw_read8(padapter, REG_DRVERLYINT);
+		rtw_write8(padapter, REG_DRVERLYINT, 20);
+	} else if (pchsw_info->bcn_early_reg_bkp)
+		rtw_write8(padapter, REG_DRVERLYINT, pchsw_info->bcn_early_reg_bkp);
 
 	SET_PWR_MODE_SET_CMD_ID(u1H2CSetPwrMode, CMD_ID_SET_PWR_MODE);
 	SET_PWR_MODE_SET_CLASS(u1H2CSetPwrMode, CLASS_SET_PWR_MODE);
@@ -324,7 +330,7 @@ void rtl8822c_set_fw_pwrmode_inips_cmd_wowlan(PADAPTER padapter, u8 ps_mode)
 	}
 	else {
 		SET_H2CCMD_INACTIVE_PS_EN(param, 1);
-		if(registry_par->suspend_type == FW_IPS_DISABLE_BBRF && !check_fwstate(pmlmepriv, _FW_LINKED))
+		if(registry_par->suspend_type == FW_IPS_DISABLE_BBRF && !check_fwstate(pmlmepriv, WIFI_ASOC_STATE))
 			SET_H2CCMD_INACTIVE_DISBBRF(param, 1);
 		if(registry_par->suspend_type == FW_IPS_WRC) {
 			SET_H2CCMD_INACTIVE_PERIOD_SCAN_EN(param, 1);
@@ -339,6 +345,14 @@ void rtl8822c_set_fw_pwrmode_inips_cmd_wowlan(PADAPTER padapter, u8 ps_mode)
 
 #endif /* CONFIG_WOWLAN */
 
+void rtl8822c_set_usb_suspend_mode(PADAPTER padapter)
+{
+	struct pwrctrl_priv *ppwrpriv = adapter_to_pwrctl(padapter);
+	u8 param[H2C_BT_UNKNOWN_DEVICE_WA_LEN] = {0};
+
+	SET_H2CCMD_BT_UNKNOWN_DEVICE_WA_PARM(param, 1);
+	rtl8822c_fillh2ccmd(padapter, H2C_BT_UNKNOWN_DEVICE_WA, H2C_BT_UNKNOWN_DEVICE_WA_LEN, param);
+}
 
 #ifdef CONFIG_BT_COEXIST
 void rtl8822c_download_BTCoex_AP_mode_rsvd_page(PADAPTER adapter)
@@ -514,8 +528,13 @@ static void process_c2h_event(PADAPTER adapter, u8 *c2h, u32 size)
 	pc2h_data = c2h + desc_size;
 	c2h_len = size - desc_size;
 
-	id = C2H_GET_CMD_ID(pc2h_data);
-	seq = C2H_GET_SEQ(pc2h_data);
+	if (c2h_len >= 4) {
+		id = C2H_GET_CMD_ID(pc2h_data);
+		seq = C2H_GET_SEQ(pc2h_data);
+	} else {
+		id = C2H_GET_CMD_ID_1BYTE(pc2h_data);
+		seq = C2H_GET_SEQ_1BYTE(pc2h_data);
+	}
 
 	/* shift 2 byte to remove cmd id & seq */
 	pc2h_payload = pc2h_data + 2;
@@ -561,12 +580,6 @@ static void process_c2h_event(PADAPTER adapter, u8 *c2h, u32 size)
 			break;
 		}
 #endif
-		else if (C2H_HDR_GET_C2H_SUB_CMD_ID(pc2h_data) == 0x1B) {
-			/* C2H_SUB_CMD_ID_C2H_PKT_FW_STATUS_NOTIFY */
-			break;
-		}
-
-
 		/* indicate c2h pkt + rx desc to halmac */
 		rtw_halmac_c2h_handle(adapter_to_dvobj(adapter), c2h, size);
 		break;
@@ -632,6 +645,7 @@ void rtl8822c_c2h_handler_no_io(PADAPTER adapter, u8 *pbuf, u16 length)
 	case C2H_IQK_FINISH:
 	case C2H_MCC:
 	case C2H_BCN_EARLY_RPT:
+	case C2H_LPS_STATUS_RPT:	
 	case C2H_EXTEND:
 		/* no I/O, process directly */
 		process_c2h_event(adapter, pbuf, length);

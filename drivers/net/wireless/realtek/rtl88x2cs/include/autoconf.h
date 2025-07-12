@@ -42,8 +42,6 @@
 	#endif
 #endif
 
-#define CONFIG_IEEE80211_BAND_5GHZ
-
 /* Set CONFIG_IOCTL_CFG80211 from Makefile */
 #ifdef CONFIG_IOCTL_CFG80211
 	/*
@@ -148,10 +146,12 @@
 #define RTW_XMIT_THREAD_HIGH_PRIORITY_AGG
 #define CONFIG_SDIO_HOOK_DEV_SHUTDOWN
 /*#define CONFIG_SDIO_TX_ENABLE_AVAL_INT*/ /* not implemented yet */
+#define SDIO_FREE_XMIT_BUF_SEMA
+/* #define DBG_SDIO_FREE_XMIT_BUF_SEMA */
 /* #define CONFIG_SDIO_TX_FORMAT_DUMMY_AUTO */
 #define CONFIG_SDIO_RX_COPY
-/* #define CONFIG_SDIO_MONITOR */
 #define DBG_SDIO	1
+
 
 /*
  * Others
@@ -261,6 +261,7 @@
 #define CONFIG_HW_ANTENNA_DIVERSITY
 #endif /* CONFIG_ANTENNA_DIVERSITY */
 
+/* #define CONFIG_RTW_MGMT_TX_EAPOL */
 
 /*
  * Debug Related Config
@@ -271,8 +272,6 @@
 #define DBG	0	/* for ODM & BTCOEX debug */
 #endif /* !CONFIG_RTW_DEBUG */
 
-#define CONFIG_PROC_DEBUG
-
 #define DBG_CONFIG_ERROR_DETECT
 #if 0
 #define DBG_XMIT_BUF
@@ -280,10 +279,7 @@
 #define CONFIG_FW_C2H_DEBUG
 #endif
 
-/* #define CONFIG_RTW_8822C_BETA_DEV */
-#ifdef CONFIG_RTW_8822C_BETA_DEV
+
 /* #define CONFIG_DISABLE_ODM */
 /* #define CONFIG_NO_FW */
-/* #define CONFIG_DEFAULT_PWR_BY_RATE_TABLE */
-#endif
-
+ 

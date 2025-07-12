@@ -27,7 +27,7 @@ static void intf_chip_configure(PADAPTER adapter)
 	phal = GET_HAL_DATA(adapter);
 
 #ifdef RTW_RX_AGGREGATION
-	phal->rxagg_mode = HALMAC_RX_AGG_MODE_DMA;
+	phal->rxagg_mode = (RX_AGG_MODE)HALMAC_RX_AGG_MODE_DMA;
 	phal->rxagg_dma_size = 0xff;
 	phal->rxagg_dma_timeout= 0x20;
 #endif
@@ -138,7 +138,7 @@ static void init_interrupt(PADAPTER adapter)
 
 #ifdef CONFIG_SDIO_MULTI_FUNCTION_COEX
 	if (sdio_get_num_of_func(adapter_to_dvobj(adapter)) > 1)
-		hal->sdio_himr |= BIT8;
+		hal->sdio_himr |= BIT_BT_INT_MASK_8822C;
 #endif
 }
 
@@ -230,6 +230,10 @@ static void _cancel_thread(PADAPTER adapter)
 	/* stop xmit_buf_thread */
 	if (xmitpriv->SdioXmitThread) {
 		_rtw_up_sema(&xmitpriv->SdioXmitSema);
+	#ifdef SDIO_FREE_XMIT_BUF_SEMA
+		rtw_sdio_free_xmitbuf_sema_up(xmitpriv);
+		rtw_sdio_free_xmitbuf_sema_down(xmitpriv);
+	#endif
 		rtw_thread_stop(xmitpriv->SdioXmitThread);
 		xmitpriv->SdioXmitThread = NULL;
 	}

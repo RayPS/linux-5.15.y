@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2016 - 2018 Realtek Corporation. All rights reserved.
+ * Copyright(c) 2016 - 2019 Realtek Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -75,23 +75,6 @@ w32_indir_sdio_88xx(struct halmac_adapter *adapter, u32 adr, u32 val);
 enum halmac_ret_status
 init_sdio_cfg_88xx(struct halmac_adapter *adapter)
 {
-	u32 value32;
-	struct halmac_api *api = (struct halmac_api *)adapter->halmac_api;
-
-	if (adapter->intf != HALMAC_INTERFACE_SDIO)
-		return HALMAC_RET_WRONG_INTF;
-
-	PLTFM_MSG_TRACE("[TRACE]%s ===>\n", __func__);
-
-	HALMAC_REG_R32(REG_SDIO_FREE_TXPG);
-
-	value32 = HALMAC_REG_R32(REG_SDIO_TX_CTRL) & 0xFFFF;
-	value32 &= ~(BIT_CMD_ERR_STOP_INT_EN | BIT_EN_MASK_TIMER |
-							BIT_EN_RXDMA_MASK_INT);
-	HALMAC_REG_W32(REG_SDIO_TX_CTRL, value32);
-
-	PLTFM_MSG_TRACE("[TRACE]%s <===\n", __func__);
-
 	return HALMAC_RET_SUCCESS;
 }
 
@@ -191,6 +174,8 @@ enum halmac_ret_status
 sdio_reg_rn_88xx(struct halmac_adapter *adapter, u32 offset, u32 size,
 		 u8 *value)
 {
+	u8 *r_val = NULL;
+	u32 r_size = size;
 	enum halmac_ret_status status = HALMAC_RET_SUCCESS;
 	enum halmac_sdio_cmd53_4byte_mode cmd53_4byte =
 						adapter->sdio_cmd53_4byte;
@@ -206,17 +191,33 @@ sdio_reg_rn_88xx(struct halmac_adapter *adapter, u32 offset, u32 size,
 		return status;
 	}
 
-	if (adapter->halmac_state.mac_pwr == HALMAC_MAC_POWER_OFF) {
+	if (adapter->pwr_off_flow_flag == 1 ||
+	    adapter->halmac_state.mac_pwr == HALMAC_MAC_POWER_OFF) {
 		PLTFM_MSG_ERR("[ERR]power off\n");
 		return HALMAC_RET_FAIL;
 	}
 
 	if ((cmd53_4byte == HALMAC_SDIO_CMD53_4BYTE_MODE_RW ||
 	     cmd53_4byte == HALMAC_SDIO_CMD53_4BYTE_MODE_R) &&
-	    (size & 0x03) != 0)
-		PLTFM_MSG_WARN("[WARN]SDIO length not 4-Byte alignment\n");
-
-	PLTFM_SDIO_CMD53_RN(offset, size, value);
+	    (size & 0x03) != 0) {
+		if (adapter->sdio_hw_info.io_warn_flag == 1) {
+			PLTFM_MSG_WARN("[WARN]reg_rn !align,addr 0x%x,siz %d\n",
+				       offset, size);
+			adapter->watcher.get_watcher.sdio_rn_not_align++;
+		}
+		r_size = size - (size & 0x03) + 4;
+		r_val = (u8 *)PLTFM_MALLOC(r_size);
+		if (!r_val) {
+			PLTFM_MSG_ERR("[ERR]malloc!!\n");
+			return HALMAC_RET_MALLOC_FAIL;
+		}
+		PLTFM_MEMSET(r_val, 0x00, r_size);
+		PLTFM_SDIO_CMD53_RN(offset, r_size, r_val);
+		PLTFM_MEMCPY(value, r_val, size);
+		PLTFM_FREE(r_val, r_size);
+	} else {
+		PLTFM_SDIO_CMD53_RN(offset, size, value);
+	}
 
 	return HALMAC_RET_SUCCESS;
 }
@@ -378,6 +379,9 @@ sdio_hw_info_88xx(struct halmac_adapter *adapter,
 	adapter->sdio_hw_info.spec_ver = info->spec_ver;
 	adapter->sdio_hw_info.block_size = info->block_size;
 
+	/*SW*/
+	adapter->sdio_hw_info.io_warn_flag = info->io_warn_flag;
+
 	PLTFM_MSG_TRACE("[TRACE]%s <===\n", __func__);
 
 	return HALMAC_RET_SUCCESS;
@@ -491,7 +495,7 @@ r_indir_cmd52_88xx(struct halmac_adapter *adapter, u32 offset)
 		cnt--;
 	} while (((tmp & BIT(4)) == 0) && (cnt > 0));
 
-	if (((cnt & BIT(4)) == 0) && cnt == 0)
+	if (((tmp & BIT(4)) == 0) && cnt == 0)
 		PLTFM_MSG_ERR("[ERR]sdio indirect CMD52 read\n");
 
 	value8 = PLTFM_SDIO_CMD52_R(reg_data);
@@ -528,7 +532,7 @@ r_indir_cmd53_88xx(struct halmac_adapter *adapter, u32 offset)
 		cnt--;
 	} while (((value[0] & BIT(4)) == 0) && (cnt > 0));
 
-	if (((cnt & BIT(4)) == 0) && cnt == 0)
+	if (((value[0] & BIT(4)) == 0) && cnt == 0)
 		PLTFM_MSG_ERR("[ERR]sdio indirect CMD53 read\n");
 
 	value32.byte[0] = value[2];
@@ -713,7 +717,7 @@ w_indir_cmd52_88xx(struct halmac_adapter *adapter, u32 adr, u32 val,
 		cnt--;
 	} while (((tmp & BIT(4)) == 0) && (cnt > 0));
 
-	if (((cnt & BIT(4)) == 0) && cnt == 0)
+	if (((tmp & BIT(4)) == 0) && cnt == 0)
 		PLTFM_MSG_ERR("[ERR]sdio indirect CMD52 write\n");
 
 	return status;
@@ -759,7 +763,7 @@ w_indir_cmd53_88xx(struct halmac_adapter *adapter, u32 adr, u32 val,
 		cnt--;
 	} while (((tmp & BIT(4)) == 0) && (cnt > 0));
 
-	if (((cnt & BIT(4)) == 0) && cnt == 0)
+	if (((tmp & BIT(4)) == 0) && cnt == 0)
 		PLTFM_MSG_ERR("[ERR]sdio indirect CMD53 read\n");
 
 	return status;
@@ -890,4 +894,9 @@ w_indir_sdio_88xx(struct halmac_adapter *adapter, u32 adr, u32 val,
 	return status;
 }
 
+enum halmac_ret_status
+en_ref_autok_sdio_88xx(struct halmac_adapter *adapter, u8 en)
+{
+	return HALMAC_RET_NOT_SUPPORT;
+}
 #endif /* HALMAC_88XX_SUPPORT */

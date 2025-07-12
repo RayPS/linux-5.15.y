@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2007 - 2017 Realtek Corporation.
+ * Copyright(c) 2015 - 2017 Realtek Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -12,22 +12,19 @@
  * more details.
  *
  *****************************************************************************/
-#ifndef _RTL871X_BYTEORDER_H_
-#define _RTL871X_BYTEORDER_H_
+#ifndef _RTL8814BE_HAL_H_
+#define _RTL8814BE_HAL_H_
+
+#include <drv_types.h>		/* PADAPTER */
+
+#define RT_BCN_INT_MASKS	(BIT_BCNDMAINT0_MSK_8814B |	\
+				 BIT_TXBCN0OK_MSK_8814B |	\
+				 BIT_TXBCN0ERR_MSK_8814B |	\
+				 BIT_BCNDERR0_MSK_8814B)
+
+/* rtl8814be_ops.c */
+void UpdateInterruptMask8814BE(PADAPTER, u32 AddMSR, u32 AddMSR1, u32 RemoveMSR, u32 RemoveMSR1);
+u16 get_txbd_rw_reg(u16 q_idx);
 
 
-#if defined(CONFIG_LITTLE_ENDIAN) && defined (CONFIG_BIG_ENDIAN)
-	#error "Shall be CONFIG_LITTLE_ENDIAN or CONFIG_BIG_ENDIAN, but not both!\n"
-#endif
-
-#if defined(CONFIG_LITTLE_ENDIAN)
-	#ifndef CONFIG_PLATFORM_MSTAR389
-		#include <byteorder/little_endian.h>
-	#endif
-#elif defined (CONFIG_BIG_ENDIAN)
-	#include <byteorder/big_endian.h>
-#else
-	#  error "Must be LITTLE/BIG Endian Host"
-#endif
-
-#endif /* _RTL871X_BYTEORDER_H_ */
+#endif /* _RTL8814BE_HAL_H_ */

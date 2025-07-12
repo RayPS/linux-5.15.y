@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2016 - 2018 Realtek Corporation. All rights reserved.
+ * Copyright(c) 2016 - 2019 Realtek Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -73,6 +73,9 @@ r_indir_sdio_88xx(struct halmac_adapter *adapter, u32 adr,
 enum halmac_ret_status
 w_indir_sdio_88xx(struct halmac_adapter *adapter, u32 adr, u32 val,
 		  enum halmac_io_size size);
+
+enum halmac_ret_status
+en_ref_autok_sdio_88xx(struct halmac_adapter *adapter, u8 en);
 
 #endif /* HALMAC_88XX_SUPPORT */
 
